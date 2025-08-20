@@ -1,0 +1,25 @@
+{
+  "name": "helius-token-wallet-analyzer",
+  "version": "1.0.0",
+  "description": "Node.js application to analyze Solana token wallets using Helius API",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node src/index.ts",
+    "setup": "cp env.example .env && echo 'Please edit .env file with your HELIUS_API_KEY'"
+  },
+  "keywords": ["solana", "helius", "api", "tokens", "wallets"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  }
+}
