@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createObjectCsvWriter } from 'csv-writer';
 import { WalletData } from '../types';
+import Decimal from 'decimal.js-light';
 
 export class CsvExportService {
   /**
@@ -24,7 +25,9 @@ export class CsvExportService {
         header: [
           { id: 'address', title: 'Solana Address' },
           { id: 'transactionCount', title: 'Transaction Quantity' },
-          { id: 'tokenBalance', title: 'Quantity of Coins Held' }
+          { id: 'tokenBalance', title: 'Quantity of Coins Held' },
+          { id: 'tokenMint', title: 'Token Mint' },
+          { id: 'tokenName', title: 'Token Name' }
         ],
         append: false
       });
@@ -79,20 +82,25 @@ export class CsvExportService {
    */
   async exportSummaryReport(
     tokenDataMap: Map<string, WalletData[]>,
-    outputFileName: string = 'summary_report.csv'
+    outputFileName: string = 'summary_report.csv',
+    holdersCountMap?: Map<string, number>
   ): Promise<string> {
     const summaryData: any[] = [];
 
     for (const [tokenMint, walletData] of tokenDataMap.entries()) {
       const totalWallets = walletData.length;
-      const totalBalance = walletData.reduce((sum, wallet) => sum + wallet.tokenBalance, 0);
-      const avgTransactionCount = walletData.reduce((sum, wallet) => sum + wallet.transactionCount, 0) / totalWallets || 0;
+      const totalHolders = holdersCountMap?.get(tokenMint) ?? walletData.filter(w => (w.tokenBalance || 0) > 0).length; // true holders if provided
+      const totalBalanceDec = walletData.reduce((sum, wallet) => sum.add(new Decimal(wallet.tokenBalance)), new Decimal(0));
+      const totalTxDec = walletData.reduce((sum, wallet) => sum.add(new Decimal(wallet.transactionCount)), new Decimal(0));
+      const totalBalance = totalBalanceDec.toNumber();
+      const avgTransactionCount = totalWallets ? totalTxDec.div(totalWallets).toNumber() : 0;
 
       summaryData.push({
         tokenMint,
         totalWallets,
-        totalBalance: totalBalance.toFixed(6),
-        avgTransactionCount: avgTransactionCount.toFixed(2)
+        totalHolders,
+        totalBalance: new Decimal(totalBalance).toFixed(6),
+        avgTransactionCount: new Decimal(avgTransactionCount).toFixed(2)
       });
     }
 
@@ -101,6 +109,7 @@ export class CsvExportService {
       header: [
         { id: 'tokenMint', title: 'Token Mint' },
         { id: 'totalWallets', title: 'Total Wallets' },
+        { id: 'totalHolders', title: 'Total Holders' },
         { id: 'totalBalance', title: 'Total Balance' },
         { id: 'avgTransactionCount', title: 'Average Transaction Count' }
       ],

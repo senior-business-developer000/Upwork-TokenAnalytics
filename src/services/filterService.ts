@@ -1,4 +1,5 @@
 import { WalletData } from '../types';
+import Decimal from 'decimal.js-light';
 
 export class FilterService {
   /**
@@ -11,7 +12,7 @@ export class FilterService {
     const filteredMap = new Map<string, { count: number; balance: number }>();
 
     for (const [address, data] of walletMap.entries()) {
-      if (data.count < maxTransactionCount) {
+      if (data.count <= maxTransactionCount) {
         filteredMap.set(address, data);
       }
     }
@@ -25,7 +26,8 @@ export class FilterService {
    */
   convertToWalletDataArray(
     walletMap: Map<string, { count: number; balance: number }>,
-    tokenMint: string
+    tokenMint: string,
+    tokenName?: string
   ): WalletData[] {
     const walletDataArray: WalletData[] = [];
 
@@ -36,7 +38,8 @@ export class FilterService {
           address,
           tokenBalance: data.balance,
           transactionCount: data.count,
-          tokenMint
+          tokenMint,
+          tokenName
         });
       }
     }
@@ -76,14 +79,14 @@ export class FilterService {
       };
     }
 
-    const totalBalance = walletData.reduce((sum, wallet) => sum + wallet.tokenBalance, 0);
-    const totalTransactions = walletData.reduce((sum, wallet) => sum + wallet.transactionCount, 0);
+    const totalBalanceDec = walletData.reduce((sum, wallet) => sum.add(new Decimal(wallet.tokenBalance)), new Decimal(0));
+    const totalTransactionsDec = walletData.reduce((sum, wallet) => sum.add(new Decimal(wallet.transactionCount)), new Decimal(0));
 
     return {
       totalWallets: walletData.length,
-      totalBalance,
-      avgTransactionCount: totalTransactions / walletData.length,
-      avgBalance: totalBalance / walletData.length
+      totalBalance: totalBalanceDec.toNumber(),
+      avgTransactionCount: totalTransactionsDec.div(walletData.length).toNumber(),
+      avgBalance: totalBalanceDec.div(walletData.length).toNumber()
     };
   }
 }

@@ -147,50 +147,46 @@ export class HeliusService {
       // Skip failed transactions
       if (tx.meta?.err) continue;
 
-      // Extract wallet addresses from account keys - only use string addresses
-      const accountKeys = tx.transaction.message.accountKeys;
-      
-      for (const address of accountKeys) {
-        // Only process valid string addresses
-        if (typeof address === 'string' && address.length > 10) {
-          const current = walletMap.get(address) || { count: 0, balance: 0 };
-          current.count++;
-          walletMap.set(address, current);
-        }
-      }
+      // Collect owners involved with the specific token in this transaction
+      const ownersThisTx = new Set<string>();
 
-      // Also count wallets that appear in token balances (they participated in the transaction)
-      if (tx.meta?.postTokenBalances) {
-        for (const balance of tx.meta.postTokenBalances) {
-          if (balance.owner && typeof balance.owner === 'string' && balance.owner.length > 10) {
-            const current = walletMap.get(balance.owner) || { count: 0, balance: 0 };
-            current.count++;
-            walletMap.set(balance.owner, current);
+      // Consider both pre and post token balances to identify participants for this mint
+      if (tx.meta?.preTokenBalances) {
+        for (const bal of tx.meta.preTokenBalances) {
+          if (bal.mint === tokenMint && typeof bal.owner === 'string' && bal.owner.length > 10) {
+            ownersThisTx.add(bal.owner);
           }
         }
       }
 
-      // Extract token balances from post token balances
       if (tx.meta?.postTokenBalances) {
-        for (const balance of tx.meta.postTokenBalances) {
-          if (balance.mint === tokenMint && balance.owner && typeof balance.owner === 'string') {
-            const current = walletMap.get(balance.owner) || { count: 0, balance: 0 };
-            // Handle different balance structures safely
+        for (const bal of tx.meta.postTokenBalances) {
+          if (bal.mint === tokenMint && typeof bal.owner === 'string' && bal.owner.length > 10) {
+            ownersThisTx.add(bal.owner);
+            // Update balance from post balances for this owner
+            const current = walletMap.get(bal.owner) || { count: 0, balance: 0 };
             try {
-              if (balance.uiTokenAmount && balance.uiTokenAmount.tokenAmount) {
-                current.balance = balance.uiTokenAmount.tokenAmount.uiAmount || 0;
-              } else if (balance.uiTokenAmount) {
-                current.balance = balance.uiTokenAmount.uiAmount || 0;
+              if (bal.uiTokenAmount && (bal.uiTokenAmount as any).tokenAmount) {
+                current.balance = (bal.uiTokenAmount as any).tokenAmount.uiAmount || 0;
+              } else if (bal.uiTokenAmount) {
+                current.balance = (bal.uiTokenAmount as any).uiAmount || 0;
               } else {
                 current.balance = 0;
               }
             } catch (error) {
-              console.log(`Error parsing balance for ${balance.owner}:`, error);
+              console.log(`Error parsing balance for ${bal.owner}:`, error);
               current.balance = 0;
             }
-            walletMap.set(balance.owner, current);
+            walletMap.set(bal.owner, current);
           }
         }
+      }
+
+      // Increment count once per transaction per owner for this token
+      for (const owner of ownersThisTx) {
+        const current = walletMap.get(owner) || { count: 0, balance: 0 };
+        current.count += 1;
+        walletMap.set(owner, current);
       }
     }
 
@@ -202,5 +198,53 @@ export class HeliusService {
    */
   async getTokenBalances(tokenMint: string, walletAddresses: string[]): Promise<Map<string, number>> {
     return await TokenUtils.getTokenBalancesBatch(this.apiKey, walletAddresses, tokenMint, 5);
+  }
+
+  /**
+   * Get total number of holders (token accounts with balance > 0) for a given mint
+   */
+  async getHoldersCountForMint(tokenMint: string): Promise<number> {
+    try {
+      const response = await axios.post(
+        this.baseUrl,
+        {
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'getProgramAccounts',
+          params: [
+            // SPL Token Program ID
+            'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA',
+            {
+              encoding: 'jsonParsed',
+              filters: [
+                { dataSize: 165 },
+                {
+                  memcmp: {
+                    // Mint is at offset 0 in token account state
+                    offset: 0,
+                    bytes: tokenMint
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      );
+
+      const accounts = response.data?.result || [];
+      let holders = 0;
+      for (const acc of accounts) {
+        try {
+          const ui = acc?.account?.data?.parsed?.info?.tokenAmount?.uiAmount;
+          if (typeof ui === 'number' && ui > 0) holders += 1;
+        } catch (_) {
+          // ignore malformed accounts
+        }
+      }
+      return holders;
+    } catch (error) {
+      console.error(`Error fetching holders for mint ${tokenMint}:`, error);
+      return 0;
+    }
   }
 }

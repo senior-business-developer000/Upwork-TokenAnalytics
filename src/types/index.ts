@@ -49,6 +49,7 @@ export interface WalletData {
   tokenBalance: number;
   transactionCount: number;
   tokenMint?: string; // Optional for internal use
+  tokenName?: string; // Optional display name for the token
 }
 
 export interface HeliusApiResponse {

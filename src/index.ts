@@ -18,8 +18,9 @@ class TokenWalletAnalyzer {
     this.csvExportService = new CsvExportService();
   }
 
-  async analyzeToken(tokenMint: string, maxTransactionCount: number = 15): Promise<WalletData[]> {
-    console.log(`\n=== Analyzing token: ${tokenMint} ===`);
+  async analyzeToken(token: TokenConfig, maxTransactionCount: number = 15): Promise<WalletData[]> {
+    const tokenMint = token.mint;
+    console.log(`\n=== Analyzing token: ${tokenMint} (${token.name || 'Unknown'}) ===`);
     
     try {
       const transactions = await this.heliusService.fetchTokenTransactions(tokenMint, CONFIG.MAX_TRANSACTIONS_PER_TOKEN);
@@ -33,8 +34,19 @@ class TokenWalletAnalyzer {
       console.log(`Found ${walletMap.size} unique wallets`);
 
       const filteredWallets = this.filterService.filterByTransactionCount(walletMap, maxTransactionCount);
+      
+      // Fetch current balances for filtered wallets
+      const addresses = Array.from(filteredWallets.keys());
+      const currentBalances = await this.heliusService.getTokenBalances(tokenMint, addresses);
 
-      const walletData = this.filterService.convertToWalletDataArray(filteredWallets, tokenMint);
+      // Merge into wallet data array, include token info
+      const walletData = this.filterService.convertToWalletDataArray(filteredWallets, tokenMint, token.name);
+      for (const wd of walletData) {
+        const current = currentBalances.get(wd.address);
+        if (typeof current === 'number') {
+          wd.tokenBalance = current;
+        }
+      }
 
       const sortedWalletData = this.filterService.sortByTransactionCount(walletData);
 
@@ -59,14 +71,24 @@ class TokenWalletAnalyzer {
     console.log(`\n=== Starting analysis of ${tokens.length} tokens ===`);
     
     const tokenDataMap = new Map<string, WalletData[]>();
+    const holdersCountMap = new Map<string, number>();
     const startTime = Date.now();
 
     for (let i = 0; i < tokens.length; i++) {
       const token = tokens[i];
       console.log(`\nProcessing token ${i + 1}/${tokens.length}: ${token.mint}`);
       
-      const walletData = await this.analyzeToken(token.mint, maxTransactionCount);
+      const walletData = await this.analyzeToken(token, maxTransactionCount);
       tokenDataMap.set(token.mint, walletData);
+
+      // Fetch total holders for the mint (wallets with balance > 0)
+      try {
+        const holders = await this.heliusService.getHoldersCountForMint(token.mint);
+        holdersCountMap.set(token.mint, holders);
+        console.log(`Holders for ${token.mint}: ${holders}`);
+      } catch {
+        holdersCountMap.set(token.mint, 0);
+      }
 
       if (i < tokens.length - 1) {
         await new Promise(resolve => setTimeout(resolve, 1000));
@@ -87,7 +109,7 @@ class TokenWalletAnalyzer {
     }
 
     // Export summary report
-    const summaryFile = await this.csvExportService.exportSummaryReport(tokenDataMap);
+    const summaryFile = await this.csvExportService.exportSummaryReport(tokenDataMap, 'summary_report.csv', holdersCountMap);
     console.log(`Summary report exported to: ${summaryFile}`);
 
     // Print final summary
